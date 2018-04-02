@@ -82,6 +82,8 @@ int shadow_on = 0;
 int reflection_on = 0;
 int chessBoard_on = 0;
 int refraction_on = 0;
+int diffuse_on = 0;
+int super_sampling_on = 0;
 
 
 // OpenGL
@@ -218,6 +220,8 @@ int main(int argc, char **argv) {
 		if (strcmp(argv[i], "+l") == 0)	reflection_on = 1;
 		if (strcmp(argv[i], "+c") == 0)	chessBoard_on = 1;
 		if (strcmp(argv[i], "+r") == 0)	refraction_on = 1;
+		if (strcmp(argv[i], "+f") == 0)	diffuse_on = 1;
+		if (strcmp(argv[i], "+p") == 0)	super_sampling_on = 1;
 	}
 
 	if (strcmp(argv[1], "-u") == 0) {  // user defined scene

@@ -126,3 +126,9 @@ RGB_float clr_scale(RGB_float p, float s) {
 
   return ret;
 }
+
+float vec_angle(Vector p, Vector q) {
+  const float cos_res = vec_dot(p, q) / vec_len(p) / vec_len(q);
+
+  return acos(cos_res * 1.0);
+}

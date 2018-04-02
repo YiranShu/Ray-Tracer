@@ -1,12 +1,16 @@
 #include <stdio.h>
 #include <GL/glut.h>
 #include <math.h>
+#include <cstdlib>
+#include <ctime>
 #include "global.h"
 #include "sphere.h"
 #include "chessboard.h"
 
 #define REFRACTION_RATE 1.3f
 #define TRANSPARENCY 2.0f
+#define DIFFUSE 0.55f
+#define PI 3.14159265f
 //
 // Global variables
 //
@@ -44,6 +48,8 @@ extern int shadow_on;
 extern int reflection_on;
 extern int chessBoard_on;
 extern int refraction_on;
+extern int diffuse_on;
+extern int super_sampling_on;
 extern int step_max;
 
 /////////////////////////////////////////////////////////////////////
@@ -88,6 +94,37 @@ Point reflect(Point p, Point lp, Vector lv) {
 	float z = (lv.z / lv.x) * (p.x + x - 2 * lp.x) + 2 * lp.z - p.z;
 
 	return Point(x, y, z);
+}
+
+// return unit diffuse ray vector
+Vector diffuse(Point intersection, Vector normal) {
+	srand((unsigned)time(NULL));
+	bool flag = false;
+	Vector res;
+
+	do {
+		int x = rand() % 101 - 50;
+		int y = rand() % 101 - 50;
+		int z = rand() % 101 - 50;
+
+		const float diffuse_x = intersection.x + x;
+		const float diffuse_y = intersection.y + y;
+		const float diffuse_z = intersection.z + z;
+
+		const Point diffuse_point(diffuse_x, diffuse_y, diffuse_z);
+		const Vector diffuse_intersection = get_vec(intersection, diffuse_point);
+		const float angle = vec_angle(diffuse_intersection, normal);
+
+		if(angle > 1e-4 && angle < PI / 2.0f) {
+			res = diffuse_intersection;
+			flag = true;
+		}
+
+	} while (!flag);
+
+	normalize(&res);
+
+	return res;
 }
 
 RGB_float phong(Point q, Vector v, Vector surf_norm, Spheres *sph, Vector shadow_ray, bool isChessBoard) {
@@ -198,7 +235,7 @@ RGB_float recursive_ray_trace(Point p, Vector d, int step, bool isRefraction) {
 	//
 	// do your thing here
 	//
-	if (step > step_max) { //!!!
+	if (step >= step_max) { //!!!
 		return background_clr;
 	}
 
@@ -213,6 +250,7 @@ RGB_float recursive_ray_trace(Point p, Vector d, int step, bool isRefraction) {
 	}
 	
 	RGB_float local, reflected, refracted;
+	RGB_float diffuseColor[NUM_OF_RAYS], diffuse_color = null_clr;
 	float count = 1.0f;
 	
 	if(chessBoard_on && para > 0.0f && (!sphere || vec_len(get_vec(*planeHit, p)) < vec_len(get_vec(*hit, p)))) {
@@ -255,30 +293,67 @@ RGB_float recursive_ray_trace(Point p, Vector d, int step, bool isRefraction) {
 		Point r2 = reflect(l2, *hit, surf_norm);
 		Vector r = get_vec(r1, r2);
 
+		Vector diffuseRay[NUM_OF_RAYS];
+		for (int i = 0; i < NUM_OF_RAYS; i++) {
+			diffuseRay[i] = diffuse(*hit, surf_norm);
+		}
+
 		if (reflection_on) {
 			reflected = recursive_ray_trace(*hit, r, step + 1, isRefraction);
 			count += sphere->reflectance;
 			if(refraction_on) {
 				refracted = recursive_ray_trace(*hit, d, step + 1, !isRefraction);
 				count += TRANSPARENCY;
+				if(diffuse_on) {
+					for(int i = 0; i < NUM_OF_RAYS; i++) {
+						diffuseColor[i] = recursive_ray_trace(*hit, diffuseRay[i], step + 1, isRefraction);
+						diffuse_color = clr_add(diffuse_color, diffuseColor[i]);
+					}
+					diffuse_color = clr_scale(diffuse_color, 1.0f / NUM_OF_RAYS);
+					count += DIFFUSE;
+				}
 			} else {
 				refracted = null_clr;
+				if (diffuse_on) {
+					for (int i = 0; i < NUM_OF_RAYS; i++) {
+						diffuseColor[i] = recursive_ray_trace(*hit, diffuseRay[i], step + 1, isRefraction);
+						diffuse_color = clr_add(diffuse_color, diffuseColor[i]);
+					}
+					diffuse_color = clr_scale(diffuse_color, 1.0f / NUM_OF_RAYS);
+					count += DIFFUSE;
+				}
 			}
 		} else {
 			reflected = null_clr;
 			if (refraction_on) {
 				refracted = recursive_ray_trace(*hit, d, step + 1, !isRefraction);
 				count += TRANSPARENCY;
+				if (diffuse_on) {
+					for (int i = 0; i < NUM_OF_RAYS; i++) {
+						diffuseColor[i] = recursive_ray_trace(*hit, diffuseRay[i], step + 1, isRefraction);
+						diffuse_color = clr_add(diffuse_color, diffuseColor[i]);
+					}
+					diffuse_color = clr_scale(diffuse_color, 1.0f / NUM_OF_RAYS);
+					count += DIFFUSE;
+				}
 			}
 			else {
 				refracted = null_clr;
+				if (diffuse_on) {
+					for (int i = 0; i < NUM_OF_RAYS; i++) {
+						diffuseColor[i] = recursive_ray_trace(*hit, diffuseRay[i], step + 1, isRefraction);
+						diffuse_color = clr_add(diffuse_color, diffuseColor[i]);
+					}
+					diffuse_color = clr_scale(diffuse_color, 1.0f / NUM_OF_RAYS);
+					count += DIFFUSE;
+				}
 			}
 		}
 
 		delete hit;
 		delete planeHit;
 
-		return clr_scale(clr_add(clr_add(local, clr_scale(reflected, sphere->reflectance)), clr_scale(refracted, TRANSPARENCY)), 1 / count);
+		return clr_scale(clr_add(clr_add(clr_add(local, clr_scale(reflected, sphere->reflectance)), clr_scale(refracted, TRANSPARENCY)), clr_scale(diffuse_color, DIFFUSE)), 1 / count);
 	}
 }
 
@@ -307,25 +382,31 @@ void ray_trace() {
 
 	for (i = 0; i<win_height; i++) {
 		for (j = 0; j<win_width; j++) {
-			ray = get_vec(eye_pos, cur_pixel_pos);
+			if(super_sampling_on) {
+				Vector rays[5];
+				RGB_float temp_color[5];
+				Point start[5];
 
-			//
-			// You need to change this!!!
-			//
-			// ret_color = recursive_ray_trace();
-			//ray.x = ray.y = 0.0f;
-			//ray.z = -1.0f;
-			ret_color = recursive_ray_trace(cur_pixel_pos, ray, 1, false); // just background for now
+				start[0] = cur_pixel_pos;
+				start[1] = get_point(cur_pixel_pos, Vector(0.5 * x_grid_size, 0.5 * y_grid_size, 0.0f));
+				start[2] = get_point(cur_pixel_pos, Vector(-0.5 * x_grid_size, 0.5 * y_grid_size, 0.0f));
+				start[3] = get_point(cur_pixel_pos, Vector(-0.5 * x_grid_size, -0.5 * y_grid_size, 0.0f));
+				start[4] = get_point(cur_pixel_pos, Vector(0.5 * x_grid_size, -0.5 * y_grid_size, 0.0f));
 
-																	// Parallel rays can be cast instead using below
-																	//
-																	// ray.x = ray.y = 0;
-																	// ray.z = -1.0;
-																	// ret_color = recursive_ray_trace(cur_pixel_pos, ray, 1);
+				ret_color = null_clr;
+				for(int i = 0; i < 5; i++) {
+					rays[i] = get_vec(eye_pos, start[i]);
+					temp_color[i] = recursive_ray_trace(start[i], rays[i], 1, false);
+					ret_color = clr_add(ret_color, temp_color[i]);
+				}
 
-																	// Checkboard for testing
-																	//RGB_float clr = {float(i/32), 0, float(j/32)};
-																	//ret_color = clr;
+				ret_color = clr_scale(ret_color, 0.2f);
+
+			} else{
+				ray = get_vec(eye_pos, cur_pixel_pos);
+				ret_color = recursive_ray_trace(cur_pixel_pos, ray, 1, false);
+			}
+
 
 			frame[i][j][0] = GLfloat(ret_color.r);
 			frame[i][j][1] = GLfloat(ret_color.g);
