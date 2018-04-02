@@ -13,7 +13,7 @@
  * If there is an intersection, the point of intersection should be
  * stored in the "hit" variable
  **********************************************************************/
-float intersect_sphere(Point o, Vector u, Spheres *sph, Point *hit) {
+float intersect_sphere(Point o, Vector u, Spheres *sph, Point *hit, bool isRefraction) {
 	float a = vec_dot(u, u);
 	Vector co = get_vec(sph->center, o); //o - sph->center;
 	float b = 2 * vec_dot(u, co);
@@ -24,8 +24,13 @@ float intersect_sphere(Point o, Vector u, Spheres *sph, Point *hit) {
 		return -1.0;
 	}
 
-	disc = sqrt(disc);
-	float r = (-b - disc) / (2 * a);
+	disc = sqrt(disc * 1.0);
+	float r;
+	if(isRefraction) {
+		r = (-b + disc) / (2 * a);
+	} else {
+		r = (-b - disc) / (2 * a);
+	}
   //float r2 = (-b + disc) / (2 * a);
 
   // maybe need to allocate
@@ -42,7 +47,7 @@ float intersect_sphere(Point o, Vector u, Spheres *sph, Point *hit) {
  * which arguments to use for the function. For exmaple, note that you
  * should return the point of intersection to the calling function.
  **********************************************************************/
-Spheres *intersect_scene(Point origin, Vector direction, Spheres *scene, Point *hit, int num_of_spheres) {
+Spheres *intersect_scene(Point origin, Vector direction, Spheres *scene, Point *hit, bool isRefraction) {
 //
 // do your thing here
 //
@@ -51,8 +56,8 @@ Spheres *intersect_scene(Point origin, Vector direction, Spheres *scene, Point *
 	Spheres *pointer;
 
 	for(pointer = scene; pointer != NULL; pointer = pointer->next) {
-		float temp = intersect_sphere(origin, direction, pointer, hit);
-		if(temp > 0.0 && temp < length) {
+		float temp = intersect_sphere(origin, direction, pointer, hit, isRefraction);
+		if(temp > 1e-4 && temp < length) {
 			length = temp;
 			index = pointer->index;
 		}
@@ -63,7 +68,7 @@ Spheres *intersect_scene(Point origin, Vector direction, Spheres *scene, Point *
 	} 
 
 	for(pointer = scene; pointer->index != index; pointer = pointer->next);
-	float temp = intersect_sphere(origin, direction, pointer, hit);
+	float temp = intersect_sphere(origin, direction, pointer, hit, isRefraction);
   
 	return pointer;
 }

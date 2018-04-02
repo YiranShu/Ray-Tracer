@@ -5,6 +5,8 @@
 #include "sphere.h"
 #include "chessboard.h"
 
+#define REFRACTION_RATE 1.3f
+#define TRANSPARENCY 2.0f
 //
 // Global variables
 //
@@ -41,6 +43,7 @@ extern float decay_c;
 extern int shadow_on;
 extern int reflection_on;
 extern int chessBoard_on;
+extern int refraction_on;
 extern int step_max;
 
 /////////////////////////////////////////////////////////////////////
@@ -191,7 +194,7 @@ RGB_float clamp(RGB_float color) {
 * This is the recursive ray tracer - you need to implement this!
 * You should decide what arguments to use.
 ************************************************************************/
-RGB_float recursive_ray_trace(Point p, Vector d, int step) {
+RGB_float recursive_ray_trace(Point p, Vector d, int step, bool isRefraction) {
 	//
 	// do your thing here
 	//
@@ -201,15 +204,15 @@ RGB_float recursive_ray_trace(Point p, Vector d, int step) {
 
 	Point *hit = new Point();
 	Point *planeHit = new Point();
-	Spheres *sphere = intersect_scene(p, d, scene, hit, 0);
+	Spheres *sphere = intersect_scene(p, d, scene, hit, isRefraction);
 	float para = chessBoard.intersect(p, d, planeHit);
-	if (!sphere && para < 0.0f || !sphere && !chessBoard_on) {
+	if ((!sphere && para < 0.0f) || (!sphere && !chessBoard_on)) {
 		delete hit;
 		delete planeHit;
 		return background_clr;
 	}
 	
-	RGB_float local, reflected;
+	RGB_float local, reflected, refracted;
 	float count = 1.0f;
 	
 	if(chessBoard_on && para > 0.0f && (!sphere || vec_len(get_vec(*planeHit, p)) < vec_len(get_vec(*hit, p)))) {
@@ -228,7 +231,7 @@ RGB_float recursive_ray_trace(Point p, Vector d, int step) {
 		Vector r = get_vec(r1, r2);
 
 		if (reflection_on) {
-			reflected = recursive_ray_trace(*planeHit, r, step + 1);
+			reflected = recursive_ray_trace(*planeHit, r, step + 1, false);
 			count += chessBoard.lightSquare[0].reflectance;
 		} else {
 			reflected = null_clr;
@@ -253,16 +256,29 @@ RGB_float recursive_ray_trace(Point p, Vector d, int step) {
 		Vector r = get_vec(r1, r2);
 
 		if (reflection_on) {
-			reflected = recursive_ray_trace(*hit, r, step + 1);
+			reflected = recursive_ray_trace(*hit, r, step + 1, isRefraction);
 			count += sphere->reflectance;
+			if(refraction_on) {
+				refracted = recursive_ray_trace(*hit, d, step + 1, !isRefraction);
+				count += TRANSPARENCY;
+			} else {
+				refracted = null_clr;
+			}
 		} else {
 			reflected = null_clr;
+			if (refraction_on) {
+				refracted = recursive_ray_trace(*hit, d, step + 1, !isRefraction);
+				count += TRANSPARENCY;
+			}
+			else {
+				refracted = null_clr;
+			}
 		}
 
 		delete hit;
 		delete planeHit;
 
-		return clr_scale(clr_add(local, clr_scale(reflected, sphere->reflectance)), 1 / count);
+		return clr_scale(clr_add(clr_add(local, clr_scale(reflected, sphere->reflectance)), clr_scale(refracted, TRANSPARENCY)), 1 / count);
 	}
 }
 
@@ -299,7 +315,7 @@ void ray_trace() {
 			// ret_color = recursive_ray_trace();
 			//ray.x = ray.y = 0.0f;
 			//ray.z = -1.0f;
-			ret_color = recursive_ray_trace(cur_pixel_pos, ray, 1); // just background for now
+			ret_color = recursive_ray_trace(cur_pixel_pos, ray, 1, false); // just background for now
 
 																	// Parallel rays can be cast instead using below
 																	//
